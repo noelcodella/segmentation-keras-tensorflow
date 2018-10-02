@@ -1,14 +1,6 @@
 # Noel C. F. Codella
 # Example Semantic Segmentation Code for Keras / TensorFlow
 
-# Got help from multiple web sources, including:
-# 1) https://stackoverflow.com/questions/47727679/triplet-model-for-image-retrieval-from-the-keras-pretrained-network
-# 2) https://ksaluja15.github.io/Learning-Rate-Multipliers-in-Keras/
-# 3) https://keras.io/preprocessing/image/
-# 4) https://github.com/keras-team/keras/issues/3386
-# 5) https://github.com/keras-team/keras/issues/8130
-
-
 # GLOBAL DEFINES
 T_G_WIDTH = 224
 T_G_HEIGHT = 224
@@ -61,12 +53,7 @@ datagen = ImageDataGenerator(  rotation_range=10,
                                 zoom_range=0.15,
                                 horizontal_flip=True,
                                 vertical_flip=True,
-                                #shear_range=20,
                                 )
-
-# Local Imports
-from LR_SGD import LR_SGD
-
 
 # A binary jaccard (non-differentiable)
 def jaccard_index_b(y_true, y_pred):
@@ -175,7 +162,6 @@ def createModel():
     up0 = kl.BatchNormalization()(up0)
     up0 = kl.Activation('relu')(up0)
     up = kl.Concatenate(axis=3)([up0, net_model.get_layer("pool4_conv").output])
-    #up = up0
     up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters, (3,3), padding='same', name='up1a')(up)
     up = kl.BatchNormalization()(up)
@@ -189,7 +175,7 @@ def createModel():
     up1 = kl.BatchNormalization()(up1)
     up1 = kl.Activation('relu')(up1)
     up = kl.Concatenate(axis=3)([up1, net_model.get_layer("pool3_conv").output])
-    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2a')(up)
     up = kl.BatchNormalization()(up)
     up = kl.Activation('relu')(up)
@@ -202,7 +188,7 @@ def createModel():
     up2 = kl.BatchNormalization()(up2)
     up2 = kl.Activation('relu')(up2)
     up = kl.Concatenate(axis=3)([up2, net_model.get_layer("pool2_conv").output])
-    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/4, (3,3), padding='same', name='up3a')(up)
     up = kl.BatchNormalization()(up)
     up = kl.Activation('relu')(up)
@@ -215,8 +201,8 @@ def createModel():
     up3 = kl.BatchNormalization()(up3)
     up3 = kl.Activation('relu')(up3)
     #up = kl.Concatenate(axis=3)([up3, kl.UpSampling2D((2,2))(up2)])
-    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up3)
-    #up = up3
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up3)
+    up = up3
     up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up4a')(up)
     up = kl.BatchNormalization()(up)
     up = kl.Activation('relu')(up)
@@ -253,19 +239,6 @@ def createModel():
     # model creation
     base_model = Model(net_model.input, outnet, name="base_model")
 
-    # Variable Learning Rate per Layers
-    #lr_mult_dict = {}
-    #for layer in net_model.layers:
-    #    layer.trainable = False 
-        # print layer.name
-    #    lr_mult_dict[layer.name] = 1
-    
-    #lr_mult_dict['up1a'] = 100
-
-    #base_lr = 0.0001
-    #momentum = 0.9
-    #v_optimizer = LR_SGD(lr=base_lr, momentum=momentum, decay=0.0, nesterov=False, multipliers = lr_mult_dict)
-
     print base_model.summary()
 
     base_model.compile(optimizer=keras.optimizers.Adadelta(), loss=jaccard_loss, metrics=[jaccard_loss_b, keras.losses.binary_crossentropy, joint_loss, keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss_sq, jaccard_loss])
@@ -277,7 +250,6 @@ def t_save_image_list(inputimagelist, start, length, pred, outputpath, rdim=T_G_
 
     # Count the number of images in the list
     list_file = open(inputimagelist, "r")
-    #list_file = list_file[start:start+length]
     content = list_file.readlines()
     content = content[start:start+length]
 
@@ -287,7 +259,6 @@ def t_save_image_list(inputimagelist, start, length, pred, outputpath, rdim=T_G_
         filename = outputpath + "/" + img_file
         if not os.path.exists(os.path.dirname(filename)):
             os.makedirs(os.path.dirname(filename))
-        #save_image(X_pred, numimages, filename, rdim, "JPEG")
         outimg = (pred[c_img,:,:,:])*255.
         cv2.imwrite(filename, outimg)
         c_img = c_img + 1
@@ -437,7 +408,7 @@ def learn(argv):
     t_imloaded = 0
     v_imloaded = 0
  
-    # manual loop over epochs to support very large sets of triplets
+    # manual loop over epochs to support very large sets 
     for e in range(0, numepochs):
 
         for t in range(0, total_t_ch):
