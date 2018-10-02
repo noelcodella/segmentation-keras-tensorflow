@@ -15,7 +15,7 @@ T_G_HEIGHT = 224
 T_G_NUMCHANNELS = 3
 T_G_SEED = 1337
 
-T_G_CHUNKSIZE = 1000
+T_G_CHUNKSIZE = 5000
 
 USAGE_LEARN = 'Usage: \n\t -learn <Train Images (TXT)> <Train Masks (TXT)> <Val Images (TXT)> <Val Masks (TXT)> <batch size> <num epochs> <output model prefix> <option: load weights from...> \n\t -extract <Model Prefix> <Input Image List (TXT)> <Output File (TXT)> \n\t\tBuilds and scores a model '
 
@@ -47,19 +47,52 @@ import keras.layers as kl
 
 from keras.preprocessing.image import ImageDataGenerator
 
+# Uncomment to use the TensorFlow Debugger
+#from tensorflow.python import debug as tf_debug
+#sess = K.get_session()
+#sess = tf_debug.LocalCLIDebugWrapperSession(sess)
+#K.set_session(sess)
+
 # Generator object for data augmentation.
 # Can change values here to affect augmentation style.
-datagen = ImageDataGenerator(  rotation_range=90,
-                                width_shift_range=0.1,
-                                height_shift_range=0.1,
-                                zoom_range=0.1,
+datagen = ImageDataGenerator(  rotation_range=10,
+                                width_shift_range=0.15,
+                                height_shift_range=0.15,
+                                zoom_range=0.15,
                                 horizontal_flip=True,
                                 vertical_flip=True,
+                                #shear_range=20,
                                 )
 
 # Local Imports
 from LR_SGD import LR_SGD
 
+
+# A binary jaccard (non-differentiable)
+def jaccard_index_b(y_true, y_pred):
+
+    safety = 0.001
+
+    y_true_f = K.cast(K.greater(K.flatten(y_true),0.5),'float32')
+    y_pred_f = K.cast(K.greater(K.flatten(y_pred),0.5),'float32')
+
+    top = K.sum(K.minimum(y_true_f, y_pred_f))
+    bottom = K.sum(K.maximum(y_true_f, y_pred_f))
+
+    return top / (bottom + safety)
+
+
+# A binary jaccard (non-differentiable)
+def jaccard_loss_b(y_true, y_pred):
+
+    return 1 - jaccard_index_b(y_true, y_pred)
+
+# An example loss based on multiple metrics
+def joint_loss(y_true, y_pred):
+
+    return 0.4 * jaccard_loss_b(y_true, y_pred) + 0.2 * soft_jaccard_loss(y_true, y_pred) + 0.2 * jaccard_loss(y_true, y_pred) + 0.2 * keras.losses.mean_squared_error(y_true, y_pred)
+
+# A computation of the jaccard index
 def jaccard_index(y_true, y_pred):
     
     safety = 0.001
@@ -72,11 +105,12 @@ def jaccard_index(y_true, y_pred):
 
     return top / (bottom + safety)
 
-
+# An example loss based on jaccard index
 def jaccard_loss(y_true, y_pred):
 
     return 1 - jaccard_index(y_true, y_pred)
 
+# squared version of jaccard index (further penalty to poor performers)
 def jaccard_loss_sq(y_true, y_pred):
 
     val = jaccard_index(y_true, y_pred)
@@ -84,7 +118,11 @@ def jaccard_loss_sq(y_true, y_pred):
     # further weight poor segmentation images
     return 1 - val*val
 
+
+# a 'soft' version of the jaccard index
 def soft_jaccard_index(y_true, y_pred):
+
+    safety = 0.001
 
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
@@ -92,7 +130,7 @@ def soft_jaccard_index(y_true, y_pred):
     top = K.sum(y_true_f * y_pred_f)
     bottom = K.sum(y_true_f * y_true_f) + K.sum(y_pred_f * y_pred_f) - top
 
-    return top / bottom
+    return top / (bottom + safety)
 
 
 def soft_jaccard_loss(y_true, y_pred):
@@ -120,83 +158,104 @@ def createDataGen(X, Y, b):
             yield Xi[0], Yi[0]
 
 
+
 def createModel():
 
     # Initialize a ResNet50_ImageNet Model
-    resnet_input = kl.Input(shape=(T_G_WIDTH,T_G_HEIGHT,T_G_NUMCHANNELS))
-    resnet_model = keras.applications.resnet50.ResNet50(weights='imagenet', include_top = False, input_tensor=resnet_input)
+    net_input = kl.Input(shape=(T_G_WIDTH,T_G_HEIGHT,T_G_NUMCHANNELS))
+    net_model = keras.applications.densenet.DenseNet121(weights='imagenet', include_top = False, input_tensor=net_input)
 
-    numfilters = 128
+    numfilters = 256
 
     # New Layers over ResNet50
-    net = resnet_model.output
+    net = net_model.output
 
-    up = kl.UpSampling2D((2,2))(net)
-    up = kl.Concatenate(axis=3)([up, resnet_model.get_layer("activation_40").output])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up0 = kl.UpSampling2D((2,2))(net)
+    up0 = kl.Conv2DTranspose(numfilters, (3, 3), strides=(2, 2), padding='same')(net)
+    up0 = kl.BatchNormalization()(up0)
+    up0 = kl.Activation('tanh')(up0)
+    up = kl.Concatenate(axis=3)([up0, net_model.get_layer("pool4_conv").output])
+    #up = up0
+    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters, (3,3), padding='same', name='up1a')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
     up = kl.Conv2D(numfilters, (3,3), padding='same', name='up1b')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
 
-    up = kl.UpSampling2D((2,2))(up)
-    up = kl.Concatenate(axis=3)([up, resnet_model.get_layer("activation_22").output])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up1 = kl.UpSampling2D((2,2))(up)
+    up1 = kl.Conv2DTranspose(numfilters/2, (3, 3), strides=(2, 2), padding='same')(up)
+    up1 = kl.BatchNormalization()(up1)
+    up1 = kl.Activation('tanh')(up1)
+    up = kl.Concatenate(axis=3)([up1, net_model.get_layer("pool3_conv").output])
+    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2a')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2b')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
 
-    up = kl.UpSampling2D((2,2))(up)
-    up = kl.Concatenate(axis=3)([up, kl.ZeroPadding2D(padding=((1, 0), (1, 0)))(resnet_model.get_layer("activation_10").output)])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up2 = kl.UpSampling2D((2,2))(up)
+    up2 = kl.Conv2DTranspose(numfilters/4, (3, 3), strides=(2, 2), padding='same')(up)
+    up2 = kl.BatchNormalization()(up2)
+    up2 = kl.Activation('tanh')(up2)
+    up = kl.Concatenate(axis=3)([up2, net_model.get_layer("pool2_conv").output])
+    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/4, (3,3), padding='same', name='up3a')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
     up = kl.Conv2D(numfilters/4, (3,3), padding='same', name='up3b')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
 
-    up = kl.UpSampling2D((2,2))(up)
-    up = kl.Concatenate(axis=3)([up, resnet_model.get_layer("activation_1").output])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up3 = kl.UpSampling2D((2,2))(up)
+    up3 = kl.Conv2DTranspose(numfilters/8, (3, 3), strides=(2, 2), padding='same')(up)
+    up3 = kl.BatchNormalization()(up3)
+    up3 = kl.Activation('tanh')(up3)
+    #up = kl.Concatenate(axis=3)([up3, kl.UpSampling2D((2,2))(up2)])
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up3)
+    up = up3
     up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up4a')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
     up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up4b')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
 
-    #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side1')(resnet_model.get_layer("input_1").output)
-    #side = kl.BatchNormalization(axis=3)(side)
-    #side = kl.Activation('relu')(side)
+    #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side1')(net_model.get_layer("input_1").output)
+    #side = kl.BatchNormalization()(side)
+    #side = kl.Activation('tanh')(side)
     #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side2')(side)
-    #side = kl.BatchNormalization(axis=3)(side)
-    #side = kl.Activation('relu')(side)
+    #side = kl.BatchNormalization()(side)
+    #side = kl.Activation('tanh')(side)
 
-    up = kl.UpSampling2D((2,2))(up)
-    #up = kl.Concatenate(axis=3)([up, side])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up4 = kl.UpSampling2D((2,2))(up)
+    up4 = kl.Conv2DTranspose(numfilters/16, (3, 3), strides=(2, 2), padding='same')(up)
+    up4 = kl.BatchNormalization()(up4)
+    up4 = kl.Activation('tanh')(up4)
+    #up = kl.Concatenate(axis=3)([up4, side, kl.UpSampling2D((16,16))(up0), kl.UpSampling2D((8,8))(up1), kl.UpSampling2D((4,4))(up2),kl.UpSampling2D((2,2))(up3)])
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up4)
+    up = up4
     up = kl.Conv2D(numfilters/16, (3,3), padding='same', name='up5a')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
     up = kl.Conv2D(numfilters/16, (3,3), padding='same', name='up5b')(up)
-    up = kl.BatchNormalization(axis=3)(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)
+    up = kl.Activation('tanh')(up)
     #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
 
-    outnet = kl.Conv2D(1, (1,1), padding='same', activation='sigmoid', name='segout')(up)
+    outnet = kl.Conv2D(1, (1,1), padding='same', name='segout')(up)
+    #outnet = kl.BatchNormalization()(outnet)
+    outnet = kl.Activation('sigmoid')(outnet)
 
     # model creation
-    base_model = Model(resnet_model.input, outnet, name="base_model")
+    base_model = Model(net_model.input, outnet, name="base_model")
 
     # Variable Learning Rate per Layers
     #lr_mult_dict = {}
-    #for layer in resnet_model.layers:
+    #for layer in net_model.layers:
     #    layer.trainable = False 
         # print layer.name
     #    lr_mult_dict[layer.name] = 1
@@ -209,7 +268,7 @@ def createModel():
 
     print base_model.summary()
 
-    base_model.compile(optimizer=keras.optimizers.Adadelta(), loss=soft_jaccard_loss, metrics=[keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss_sq, jaccard_loss])
+    base_model.compile(optimizer=keras.optimizers.Adadelta(), loss=jaccard_loss, metrics=[jaccard_loss_b, keras.losses.binary_crossentropy, joint_loss, keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss_sq, jaccard_loss])
 
     return base_model
 
@@ -229,16 +288,17 @@ def t_save_image_list(inputimagelist, start, length, pred, outputpath, rdim=T_G_
         if not os.path.exists(os.path.dirname(filename)):
             os.makedirs(os.path.dirname(filename))
         #save_image(X_pred, numimages, filename, rdim, "JPEG")
-        cv2.imwrite(filename, pred[c_img,:,:,:])
+        outimg = (pred[c_img,:,:,:])*255.
+        cv2.imwrite(filename, outimg)
         c_img = c_img + 1
 
 
 # loads an image and preprocesses
-def t_read_image(loc, color):
-    t_image = cv2.imread(loc, color)
+def t_read_image(loc):
+    t_image = cv2.imread(loc)
     t_image = cv2.resize(t_image, (T_G_HEIGHT,T_G_WIDTH))
     t_image = t_image.astype("float32")
-    t_image = keras.applications.resnet50.preprocess_input(t_image, data_format='channels_last')
+    t_image = keras.applications.densenet.preprocess_input(t_image, data_format='channels_last')
 
     return t_image
 
@@ -268,12 +328,13 @@ def t_read_image_list(flist, start, length, color=1, norm=0):
 
     for i in range(start, start+datalen):
         if ((i-start) < len(content)):
-            val = t_read_image(content[i], color)
+            val = t_read_image(content[i])
             if (color == 0):
+                val = val[:,:,0]
                 val = np.expand_dims(val,2)
             imgset[i-start] = val
             if (norm == 1):
-                imgset[i-start] = t_norm_image(imgset[i-start])
+                imgset[i-start] = (t_norm_image(imgset[i-start]) * 0.98 + 0.01) 
 
     return imgset
 
@@ -315,13 +376,19 @@ def extract(argv):
 
     base_model = loaded_model 
 
+    scoreModel(imglist,base_model,outfile)
+
+    return
+
+def scoreModel(imglist, base_model, outfile):
+
     chunksize = T_G_CHUNKSIZE
     total_img = file_numlines(imglist)
     total_img_ch = int(np.ceil(total_img / float(chunksize)))
 
     for i in range(0, total_img_ch):
         imgs = t_read_image_list(imglist, i*chunksize, chunksize)
-        vals = base_model.predict(imgs) * 255.
+        vals = base_model.predict(imgs)
         t_save_image_list(imglist, i*chunksize, chunksize, vals, outfile)
 
     return
@@ -361,7 +428,15 @@ def learn(argv):
         model.load_weights(argv[7])
 
     print 'Training loop ...'
-    
+   
+    images_t = []
+    masks_t = []
+    images_v = []
+    masks_v = []
+
+    t_imloaded = 0
+    v_imloaded = 0
+ 
     # manual loop over epochs to support very large sets of triplets
     for e in range(0, numepochs):
 
@@ -369,25 +444,29 @@ def learn(argv):
 
             print 'Epoch ' + str(e) + ': train chunk ' + str(t+1) + '/ ' + str(total_t_ch) + ' ...'
 
-            print 'Reading image lists ...'
-            images_t = t_read_image_list(in_t_i, t*chunksize, chunksize)
-            masks_t = t_read_image_list(in_t_m, t*chunksize, chunksize, 0, 1)
+            if ( t_imloaded == 0 and total_t_ch == 1 ): 
+                print 'Reading image lists ...'
+                images_t = t_read_image_list(in_t_i, t*chunksize, chunksize)
+                masks_t = t_read_image_list(in_t_m, t*chunksize, chunksize, 0, 1)
+                t_imloaded = 1
 
             print 'Starting to fit ...'
 
             # This method uses data augmentation
-            model.fit_generator(generator=createDataGen(images_t,masks_t,batch), steps_per_epoch=len(images_t) / batch, epochs=1, shuffle=False, use_multiprocessing=True)
+            model.fit_generator(generator=createDataGen(images_t,masks_t,batch), steps_per_epoch=len(images_t) / batch, epochs=1, shuffle=False, use_multiprocessing=False)
         
         # In case the validation images don't fit in memory, we load chunks from disk again. 
         val_res = [0.0, 0.0]
         total_w = 0.0
         for v in range(0, total_v_ch):
 
-            print 'Loading validation image lists ...'
             print 'Epoch ' + str(e) + ': val chunk ' + str(v+1) + '/ ' + str(total_v_ch) + ' ...'
 
-            images_v = t_read_image_list(in_v_i, v*chunksize, chunksize)
-            masks_v = t_read_image_list(in_v_m, v*chunksize, chunksize, 0, 1)
+            if ( v_imloaded == 0 and total_v_ch == 1 ):
+                print 'Loading validation image lists ...'
+                images_v = t_read_image_list(in_v_i, v*chunksize, chunksize)
+                masks_v = t_read_image_list(in_v_m, v*chunksize, chunksize, 0, 1)
+                v_imloaded = 1
 
             # Weight of current validation measurement. 
             # if loaded expected number of items, this will be 1.0, otherwise < 1.0, and > 0.0.
@@ -412,6 +491,8 @@ def learn(argv):
     model_json = model.to_json()
     with open(outpath + '.json', "w") as json_file:
         json_file.write(model_json)
+
+    # scoreModel(in_v_i, model, 'debugout')
 
     return
 
