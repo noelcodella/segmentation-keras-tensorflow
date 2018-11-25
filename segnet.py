@@ -134,7 +134,7 @@ def createDataGen(X, Y, b):
 
 def createModel():
 
-    # Initialize a ResNet50_ImageNet Model
+    # Initialize a Model
     net_input = kl.Input(shape=(T_G_WIDTH,T_G_HEIGHT,T_G_NUMCHANNELS))
     #net_model = keras.applications.densenet.DenseNet121(weights='imagenet', include_top = False, input_tensor=net_input)
     net_model = keras.applications.densenet.DenseNet201(weights='imagenet', include_top = False, input_tensor=net_input)
