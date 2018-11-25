@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 import cv2
 from scipy.misc import imresize
 np.random.seed(T_G_SEED)
+import scipy
 
 # TensorFlow Includes
 import tensorflow as tf
@@ -97,14 +98,6 @@ def jaccard_loss(y_true, y_pred):
 
     return 1 - jaccard_index(y_true, y_pred)
 
-# squared version of jaccard index (further penalty to poor performers)
-def jaccard_loss_sq(y_true, y_pred):
-
-    val = jaccard_index(y_true, y_pred)
-
-    # further weight poor segmentation images
-    return 1 - val*val
-
 
 # a 'soft' version of the jaccard index
 def soft_jaccard_index(y_true, y_pred):
@@ -123,13 +116,6 @@ def soft_jaccard_index(y_true, y_pred):
 def soft_jaccard_loss(y_true, y_pred):
 
     return 1 - soft_jaccard_index(y_true, y_pred)
-
-def soft_jaccard_loss_sq(y_true, y_pred):
-
-    val = soft_jaccard_index(y_true, y_pred)
-
-    # further weight poor segmentation images
-    return 1 - val*val
 
 
 # generator function for data augmentation
@@ -150,89 +136,125 @@ def createModel():
 
     # Initialize a ResNet50_ImageNet Model
     net_input = kl.Input(shape=(T_G_WIDTH,T_G_HEIGHT,T_G_NUMCHANNELS))
-    net_model = keras.applications.densenet.DenseNet121(weights='imagenet', include_top = False, input_tensor=net_input)
+    #net_model = keras.applications.densenet.DenseNet121(weights='imagenet', include_top = False, input_tensor=net_input)
+    net_model = keras.applications.densenet.DenseNet201(weights='imagenet', include_top = False, input_tensor=net_input)
 
     numfilters = 256
+    gnoise = 0.01
 
-    # New Layers over ResNet50
+    # New Layers 
     net = net_model.output
 
     #up0 = kl.UpSampling2D((2,2))(net)
     up0 = kl.Conv2DTranspose(numfilters, (3, 3), strides=(2, 2), padding='same')(net)
     up0 = kl.BatchNormalization()(up0)
-    up0 = kl.Activation('relu')(up0)
-    up = kl.Concatenate(axis=3)([up0, net_model.get_layer("pool4_conv").output])
+    up0 = kl.GaussianNoise(gnoise)(up0)
+    up0 = kl.Activation('elu')(up0)
+    skip = kl.Conv2D(numfilters, (1,1), padding='same')(net_model.get_layer("pool4_relu").output)
+    skip = kl.BatchNormalization()(skip)
+    skip = kl.Activation('elu')(skip)
+    up = kl.Concatenate(axis=3)([up0, skip])
+    #up = up0
     up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters, (3,3), padding='same', name='up1a')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
     up = kl.Conv2D(numfilters, (3,3), padding='same', name='up1b')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
 
     #up1 = kl.UpSampling2D((2,2))(up)
     up1 = kl.Conv2DTranspose(numfilters/2, (3, 3), strides=(2, 2), padding='same')(up)
     up1 = kl.BatchNormalization()(up1)
-    up1 = kl.Activation('relu')(up1)
-    up = kl.Concatenate(axis=3)([up1, net_model.get_layer("pool3_conv").output])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    up1 = kl.GaussianNoise(gnoise)(up1)
+    up1 = kl.Activation('elu')(up1)
+    skip = kl.Conv2D(numfilters/2, (1,1), padding='same')(net_model.get_layer("pool3_relu").output)
+    skip = kl.BatchNormalization()(skip)
+    skip = kl.Activation('elu')(skip)
+    up = kl.Concatenate(axis=3)([up1, skip])
+    #up = up1
+    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2a')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2b')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
 
     #up2 = kl.UpSampling2D((2,2))(up)
     up2 = kl.Conv2DTranspose(numfilters/4, (3, 3), strides=(2, 2), padding='same')(up)
     up2 = kl.BatchNormalization()(up2)
-    up2 = kl.Activation('relu')(up2)
-    up = kl.Concatenate(axis=3)([up2, net_model.get_layer("pool2_conv").output])
+    up2 = kl.GaussianNoise(gnoise)(up2)
+    up2 = kl.Activation('elu')(up2)
+    skip = kl.Conv2D(numfilters/4, (1,1), padding='same')(net_model.get_layer("pool2_relu").output)
+    skip = kl.BatchNormalization()(skip)
+    skip = kl.Activation('elu')(skip)
+    up = kl.Concatenate(axis=3)([up2, skip])
     #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up = up2
     up = kl.Conv2D(numfilters/4, (3,3), padding='same', name='up3a')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
     up = kl.Conv2D(numfilters/4, (3,3), padding='same', name='up3b')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
+
+    #side = kl.Conv2D(numfilters/8, (1,1), padding='same', name='side1')(net_model.get_layer("conv1/relu").output)
+    #side = kl.BatchNormalization()(side)
+    #side = kl.GaussianNoise(gnoise)(side)
+    #side = kl.Activation('elu')(side)
+    #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side2')(side)
+    #side = kl.BatchNormalization()(side)
+    #side = kl.GaussianNoise(gnoise)(side)
+    #side = kl.Activation('elu')(side) 
 
     #up3 = kl.UpSampling2D((2,2))(up)
     up3 = kl.Conv2DTranspose(numfilters/8, (3, 3), strides=(2, 2), padding='same')(up)
     up3 = kl.BatchNormalization()(up3)
-    up3 = kl.Activation('relu')(up3)
-    #up = kl.Concatenate(axis=3)([up3, kl.UpSampling2D((2,2))(up2)])
+    up3 = kl.GaussianNoise(gnoise)(up3)
+    up3 = kl.Activation('elu')(up3)
+    #up = kl.Concatenate(axis=3)([up3, side])
     #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up3)
     up = up3
     up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up4a')(up)
-    up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.BatchNormalization()(up)  
+    up = kl.GaussianNoise(gnoise)(up) 
+    up = kl.Activation('elu')(up)
     up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up4b')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.GaussianNoise(gnoise)(up)
+    up = kl.Activation('elu')(up)
 
     #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side1')(net_model.get_layer("input_1").output)
     #side = kl.BatchNormalization()(side)
-    #side = kl.Activation('relu')(side)
+    #side = kl.Activation('elu')(side)
     #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side2')(side)
     #side = kl.BatchNormalization()(side)
-    #side = kl.Activation('relu')(side)
+    #side = kl.Activation('elu')(side)
 
     #up4 = kl.UpSampling2D((2,2))(up)
     up4 = kl.Conv2DTranspose(numfilters/16, (3, 3), strides=(2, 2), padding='same')(up)
     up4 = kl.BatchNormalization()(up4)
-    up4 = kl.Activation('relu')(up4)
+    up4 = kl.GaussianNoise(gnoise)(up4)
+    up4 = kl.Activation('elu')(up4)
     #up = kl.Concatenate(axis=3)([up4, side, kl.UpSampling2D((16,16))(up0), kl.UpSampling2D((8,8))(up1), kl.UpSampling2D((4,4))(up2),kl.UpSampling2D((2,2))(up3)])
     #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up4)
     up = up4
     up = kl.Conv2D(numfilters/16, (3,3), padding='same', name='up5a')(up)
     up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    up = kl.Activation('elu')(up)
     up = kl.Conv2D(numfilters/16, (3,3), padding='same', name='up5b')(up)
-    up = kl.BatchNormalization()(up)
-    up = kl.Activation('relu')(up)
+    bn0 = kl.BatchNormalization()(up)
+    top = kl.Activation('elu')(bn0)
     #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
 
-    outnet = kl.Conv2D(1, (1,1), padding='same', name='segout')(up)
+    outnet = kl.Conv2D(1, (1,1), padding='same', name='segout')(top)
     #outnet = kl.BatchNormalization()(outnet)
     outnet = kl.Activation('sigmoid')(outnet)
 
@@ -241,7 +263,7 @@ def createModel():
 
     print base_model.summary()
 
-    base_model.compile(optimizer=keras.optimizers.Adadelta(), loss=jaccard_loss, metrics=[jaccard_loss_b, keras.losses.binary_crossentropy, joint_loss, keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss_sq, jaccard_loss])
+    base_model.compile(optimizer=keras.optimizers.Adadelta(decay=0.1), loss=jaccard_loss, metrics=[jaccard_loss_b, keras.losses.binary_crossentropy, joint_loss, keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss])
 
     return base_model
 
@@ -359,7 +381,21 @@ def scoreModel(imglist, base_model, outfile):
 
     for i in range(0, total_img_ch):
         imgs = t_read_image_list(imglist, i*chunksize, chunksize)
-        vals = base_model.predict(imgs)
+        valsa = base_model.predict(imgs)
+        
+        # test time data augmentation
+        valsb = base_model.predict(scipy.ndimage.rotate(imgs, 90, axes=(2,1), reshape=False))
+        valsb = scipy.ndimage.rotate(valsb, 270, axes=(2,1), reshape=False)
+        valsc = base_model.predict(scipy.ndimage.rotate(imgs, 180, axes=(2,1), reshape=False))
+        valsc = scipy.ndimage.rotate(valsc, 180, axes=(2,1), reshape=False)
+        valsd = base_model.predict(scipy.ndimage.rotate(imgs, 270, axes=(2,1), reshape=False))
+        valsd = scipy.ndimage.rotate(valsd, 90, axes=(2,1), reshape=False)
+        valse = base_model.predict(np.roll(imgs, 10, axis=2))
+        valse = np.roll(valse, -10, axis=2)
+        valsf = base_model.predict(np.roll(imgs, 10, axis=1))
+        valsf = np.roll(valsf, -10, axis=1)
+
+        vals = (valsa + valsb + valsc + valsd + valse + valsf) / 5.0
         t_save_image_list(imglist, i*chunksize, chunksize, vals, outfile)
 
     return
@@ -424,7 +460,7 @@ def learn(argv):
             print 'Starting to fit ...'
 
             # This method uses data augmentation
-            model.fit_generator(generator=createDataGen(images_t,masks_t,batch), steps_per_epoch=len(images_t) / batch, epochs=1, shuffle=False, use_multiprocessing=False)
+            model.fit_generator(generator=createDataGen(images_t,masks_t,batch), steps_per_epoch=len(images_t) / batch, epochs=1, shuffle=False, use_multiprocessing=True)
         
         # In case the validation images don't fit in memory, we load chunks from disk again. 
         val_res = [0.0, 0.0]
