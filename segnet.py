@@ -139,8 +139,8 @@ def createModel():
     #net_model = keras.applications.densenet.DenseNet121(weights='imagenet', include_top = False, input_tensor=net_input)
     net_model = keras.applications.densenet.DenseNet201(weights='imagenet', include_top = False, input_tensor=net_input)
 
-    numfilters = 256
-    gnoise = 0.01
+    numfilters = 128
+    gnoise = 0.001
 
     # New Layers 
     net = net_model.output
@@ -175,7 +175,7 @@ def createModel():
     skip = kl.Activation('elu')(skip)
     up = kl.Concatenate(axis=3)([up1, skip])
     #up = up1
-    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2a')(up)
     up = kl.BatchNormalization()(up)
     up = kl.GaussianNoise(gnoise)(up)
@@ -263,7 +263,7 @@ def createModel():
 
     print base_model.summary()
 
-    base_model.compile(optimizer=keras.optimizers.Adadelta(decay=0.1), loss=jaccard_loss, metrics=[jaccard_loss_b, keras.losses.binary_crossentropy, joint_loss, keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss])
+    base_model.compile(optimizer=keras.optimizers.Adadelta(decay=0.0), loss=jaccard_loss, metrics=[jaccard_loss_b, keras.losses.binary_crossentropy, joint_loss, keras.losses.mean_squared_error, soft_jaccard_loss, jaccard_loss])
 
     return base_model
 
@@ -327,7 +327,7 @@ def t_read_image_list(flist, start, length, color=1, norm=0):
                 val = np.expand_dims(val,2)
             imgset[i-start] = val
             if (norm == 1):
-                imgset[i-start] = (t_norm_image(imgset[i-start]) * 0.98 + 0.01) 
+                imgset[i-start] = (t_norm_image(imgset[i-start]) * 1.0 + 0.0) 
 
     return imgset
 
@@ -373,7 +373,7 @@ def extract(argv):
 
     return
 
-def scoreModel(imglist, base_model, outfile):
+def scoreModel(imglist, base_model, outfile, aug=0):
 
     chunksize = T_G_CHUNKSIZE
     total_img = file_numlines(imglist)
@@ -384,18 +384,23 @@ def scoreModel(imglist, base_model, outfile):
         valsa = base_model.predict(imgs)
         
         # test time data augmentation
-        valsb = base_model.predict(scipy.ndimage.rotate(imgs, 90, axes=(2,1), reshape=False))
-        valsb = scipy.ndimage.rotate(valsb, 270, axes=(2,1), reshape=False)
-        valsc = base_model.predict(scipy.ndimage.rotate(imgs, 180, axes=(2,1), reshape=False))
-        valsc = scipy.ndimage.rotate(valsc, 180, axes=(2,1), reshape=False)
-        valsd = base_model.predict(scipy.ndimage.rotate(imgs, 270, axes=(2,1), reshape=False))
-        valsd = scipy.ndimage.rotate(valsd, 90, axes=(2,1), reshape=False)
-        valse = base_model.predict(np.roll(imgs, 10, axis=2))
-        valse = np.roll(valse, -10, axis=2)
-        valsf = base_model.predict(np.roll(imgs, 10, axis=1))
-        valsf = np.roll(valsf, -10, axis=1)
+        if (aug > 0):
+            valsb = base_model.predict(scipy.ndimage.rotate(imgs, 90, axes=(2,1), reshape=False))
+            valsb = scipy.ndimage.rotate(valsb, 270, axes=(2,1), reshape=False)
+            valsc = base_model.predict(scipy.ndimage.rotate(imgs, 180, axes=(2,1), reshape=False))
+            valsc = scipy.ndimage.rotate(valsc, 180, axes=(2,1), reshape=False)
+            valsd = base_model.predict(scipy.ndimage.rotate(imgs, 270, axes=(2,1), reshape=False))
+            valsd = scipy.ndimage.rotate(valsd, 90, axes=(2,1), reshape=False)
+            valse = base_model.predict(np.roll(imgs, 10, axis=2))
+            valse = np.roll(valse, -10, axis=2)
+            valsf = base_model.predict(np.roll(imgs, 10, axis=1))
+            valsf = np.roll(valsf, -10, axis=1)
 
-        vals = (valsa + valsb + valsc + valsd + valse + valsf) / 5.0
+            vals = (valsa + valsb + valsc + valsd + valse + valsf) / 5.0
+
+        else:
+            vals = valsa
+
         t_save_image_list(imglist, i*chunksize, chunksize, vals, outfile)
 
     return
