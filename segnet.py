@@ -391,12 +391,12 @@ def scoreModel(imglist, base_model, outfile, aug=0):
             valsc = scipy.ndimage.rotate(valsc, 180, axes=(2,1), reshape=False)
             valsd = base_model.predict(scipy.ndimage.rotate(imgs, 270, axes=(2,1), reshape=False))
             valsd = scipy.ndimage.rotate(valsd, 90, axes=(2,1), reshape=False)
-            valse = base_model.predict(np.roll(imgs, 10, axis=2))
-            valse = np.roll(valse, -10, axis=2)
-            valsf = base_model.predict(np.roll(imgs, 10, axis=1))
-            valsf = np.roll(valsf, -10, axis=1)
+            #valse = base_model.predict(np.roll(imgs, 10, axis=2))
+            #valse = np.roll(valse, -10, axis=2)
+            #valsf = base_model.predict(np.roll(imgs, 10, axis=1))
+            #valsf = np.roll(valsf, -10, axis=1)
 
-            vals = (valsa + valsb + valsc + valsd + valse + valsf) / 5.0
+            vals = (valsa + valsb + valsc + valsd) / 4.0
 
         else:
             vals = valsa
