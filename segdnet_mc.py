@@ -48,12 +48,12 @@ from keras.preprocessing.image import ImageDataGenerator
 
 # Generator object for data augmentation.
 # Can change values here to affect augmentation style.
-datagen = ImageDataGenerator(  rotation_range=10,
-                                width_shift_range=0.15,
-                                height_shift_range=0.15,
-                                zoom_range=0.15,
+datagen = ImageDataGenerator(  rotation_range=0,
+                                width_shift_range=0.0,
+                                height_shift_range=0.0,
+                                zoom_range=0.0,
                                 horizontal_flip=True,
-                                vertical_flip=True,
+                                vertical_flip=False,
                                 )
 
 
@@ -133,7 +133,7 @@ def colorsToClass(clabels, cmap):
                 # BGR channel order, so flip
                 c = np.flip(np.squeeze(clabels[k,i,j,:]))
                 
-                kmap = (np.abs(ncmap-c)).sum(axis=1) < 16
+                kmap = (np.abs(ncmap-c)).sum(axis=1) < 50
                 kmap = kmap.astype('float')
 
                 karray[k,i,j,:] = kmap
@@ -219,7 +219,7 @@ def createModel(numk=1):
     skip = kl.Activation('elu')(skip)
     up = kl.Concatenate(axis=3)([up1, skip])
     #up = up1
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     up = kl.Conv2D(numfilters/2, (3,3), padding='same', name='up2a')(up)
     up = kl.BatchNormalization()(up)
     up = kl.GaussianNoise(gnoise)(up)
@@ -239,7 +239,7 @@ def createModel(numk=1):
     skip = kl.GaussianNoise(gnoise)(skip)
     skip = kl.Activation('elu')(skip)
     up = kl.Concatenate(axis=3)([up2, skip])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
+    up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     #up = up2
     up = kl.Conv2D(numfilters/4, (3,3), padding='same', name='up3a')(up)
     up = kl.BatchNormalization()(up)
@@ -254,10 +254,10 @@ def createModel(numk=1):
     side = kl.BatchNormalization()(side)
     side = kl.GaussianNoise(gnoise)(side)
     side = kl.Activation('elu')(side)
-    #side = kl.Conv2D(numfilters/8, (3,3), padding='same', name='side2')(side)
-    #side = kl.BatchNormalization()(side)
-    #side = kl.GaussianNoise(gnoise)(side)
-    #side = kl.Activation('elu')(side) 
+    side = kl.Conv2D(numfilters/8, (3,3), padding='same')(side)
+    side = kl.BatchNormalization()(side)
+    side = kl.GaussianNoise(gnoise)(side)
+    side = kl.Activation('elu')(side) 
 
     #up3 = kl.UpSampling2D((2,2))(up)
     up3 = kl.Conv2DTranspose(numfilters/8, (3, 3), strides=(2, 2), padding='same')(up)
@@ -265,7 +265,7 @@ def createModel(numk=1):
     up3 = kl.GaussianNoise(gnoise)(up3)
     up3 = kl.Activation('elu')(up3)
     up = kl.Concatenate(axis=3)([up3, side])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up3)
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     #up = up3
     up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up4a')(up)
     up = kl.BatchNormalization()(up)  
@@ -291,17 +291,18 @@ def createModel(numk=1):
     up4 = kl.GaussianNoise(gnoise)(up4)
     up4 = kl.Activation('elu')(up4)
     up = kl.Concatenate(axis=3)([up4, side])
-    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up4)
+    #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
     #up = up4
-    up = kl.Conv2D(numfilters/16, (3,3), padding='same', name='up5a')(up)
+    up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up5a')(up)
     up = kl.BatchNormalization()(up)
     up = kl.Activation('elu')(up)
-    up = kl.Conv2D(numfilters/16, (3,3), padding='same', name='up5b')(up)
+    up = kl.Conv2D(numfilters/8, (3,3), padding='same', name='up5b')(up)
     bn0 = kl.BatchNormalization()(up)
     top = kl.Activation('elu')(bn0)
     #up = kl.SpatialDropout2D(0.5,data_format='channels_last')(up)
 
-    outnet = kl.Conv2D(numk, (1,1), padding='same', name='segout')(top)
+    #outnet = kl.Concatenate(axis=3)([top, side])
+    outnet = kl.Conv2D(numk, (3,3), padding='same', name='segout')(top)
     #outnet = kl.BatchNormalization()(outnet)
     outnet = kl.Activation('sigmoid')(outnet)
 
