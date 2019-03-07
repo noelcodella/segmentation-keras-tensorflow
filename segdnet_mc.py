@@ -515,7 +515,7 @@ def learn(argv):
 
             print 'Epoch ' + str(e) + ': train chunk ' + str(t+1) + '/ ' + str(total_t_ch) + ' ...'
 
-            if ( t_imloaded == 0 and total_t_ch == 1 ): 
+            if ( t_imloaded == 0 or total_t_ch > 1 ): 
                 print 'Reading image lists ...'
                 images_t = t_read_image_list(in_t_i, t*chunksize, chunksize)
                 colors_t = t_read_image_list(in_t_m, t*chunksize, chunksize, 1, 0, 0)
@@ -534,7 +534,7 @@ def learn(argv):
 
             print 'Epoch ' + str(e) + ': val chunk ' + str(v+1) + '/ ' + str(total_v_ch) + ' ...'
 
-            if ( v_imloaded == 0 and total_v_ch == 1 ):
+            if ( v_imloaded == 0 or total_v_ch > 1 ):
                 print 'Loading validation image lists ...'
                 images_v = t_read_image_list(in_v_i, v*chunksize, chunksize)
                 colors_v = t_read_image_list(in_v_m, v*chunksize, chunksize, 1, 0, 0)
